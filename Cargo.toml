@@ -1,0 +1,16 @@
+[package]
+name = "LabVIEW-MIDI-XPLAT"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "midi_driver"
+crate-type = ["cdylib"]
+
+[dependencies]
+midir = "0.10.*"
+
+[profile.release]
+lto = true
+codegen-units = 1
+panic = "abort"
