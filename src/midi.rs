@@ -77,6 +77,41 @@ impl MidiManager {
         Ok(())
     }
 
+    /// Connect to a MIDI input device with a direct callback
+    /// This bypasses the channel system and calls the callback directly
+    pub fn connect_input_with_callback<F>(
+        &mut self, 
+        device_index: usize,
+        callback: F
+    ) -> Result<(), Box<dyn std::error::Error>>
+    where
+        F: Fn(Vec<u8>) + Send + 'static,
+    {
+        let midi_in = MidiInput::new("LabVIEW MIDI Input")?;
+        let ports = midi_in.ports();
+        
+        if device_index >= ports.len() {
+            return Err("Device index out of range".into());
+        }
+
+        let port = &ports[device_index];
+        let port_name = midi_in.port_name(port)?;
+        
+        // Connect with direct callback - no channel needed
+        let connection = midi_in.connect(port, &port_name, 
+            move |_timestamp, message, _| {
+                // Call the callback directly with the MIDI message
+                callback(message.to_vec());
+            }, 
+            ()
+        )?;
+
+        self.input_connection = Some(connection);
+        
+        println!("Connected to MIDI input with callback: {}", port_name);
+        Ok(())
+    }
+
     // Connect to a MIDI output device by index
     pub fn connect_output(&mut self, device_index: usize) -> Result<(), Box<dyn std::error::Error>> {
         let midi_out = MidiOutput::new("LabVIEW MIDI Output")?;

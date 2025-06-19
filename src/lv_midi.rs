@@ -4,7 +4,8 @@ use crate::labview_interop::types::LVStatusCode;
 use std::ffi::CString;
 use std::os::raw::{c_char, c_int, c_uchar};
 use std::collections::HashMap;
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::mpsc::{self, Receiver};
 
 // Global storage for MIDI managers (thread-safe)
 static MIDI_MANAGERS: OnceLock<Mutex<HashMap<i32, MidiManager>>> = OnceLock::new();
@@ -414,40 +415,41 @@ pub extern "C" fn midi_parse_message(
     0
 }
 
-// ========== LABVIEW USER EVENTS ==========
+// ========== LABVIEW USER EVENTS - FIXED IMPLEMENTATION ==========
 
 /// MIDI data structure for LabVIEW User Events
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct MidiEventData {
-    pub message_type: i32,  // 0=Note Off, 1=Note On, 2=Control Change, etc.
-    pub channel: i32,       // MIDI channel (0-15)
-    pub note_or_controller: i32,  // Note number or controller number
-    pub velocity_or_value: i32,   // Velocity or controller value
-    pub raw_status: i32,    // Raw status byte for debugging
+    pub message_type: i32,
+    pub channel: i32,
+    pub note_or_controller: i32,
+    pub velocity_or_value: i32,
+    pub raw_status: i32,
 }
 
 // Storage for event-based MIDI listeners
 static EVENT_LISTENERS: OnceLock<Mutex<HashMap<i32, EventListener>>> = OnceLock::new();
 
 struct EventListener {
-    manager: MidiManager,
     user_event: Option<LVUserEvent<MidiEventData>>,
     filter_array: Vec<u8>,
     device_index: Option<usize>,
-    running: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    running: Arc<std::sync::atomic::AtomicBool>,
     thread_handle: Option<std::thread::JoinHandle<()>>,
+    // Store the message receiver from the MIDI manager
+    message_receiver: Option<Receiver<Vec<u8>>>,
 }
 
 impl EventListener {
     fn new() -> Self {
         EventListener {
-            manager: MidiManager::new(),
             user_event: None,
             filter_array: Vec::new(),
             device_index: None,
-            running: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            running: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             thread_handle: None,
+            message_receiver: None,
         }
     }
 }
@@ -510,6 +512,7 @@ pub extern "C" fn midi_set_message_filter(
 }
 
 /// Connect the event listener to a MIDI input device
+/// This creates a dedicated MIDI connection for the event listener
 #[no_mangle]
 pub extern "C" fn midi_connect_event_input(
     handle: c_int,
@@ -519,9 +522,13 @@ pub extern "C" fn midi_connect_event_input(
     
     match listeners.get_mut(&handle) {
         Some(listener) => {
-            match listener.manager.connect_input(device_index as usize) {
+            // Create a dedicated MIDI manager for this event listener
+            let mut dedicated_manager = MidiManager::new();
+            match dedicated_manager.connect_input(device_index as usize) {
                 Ok(_) => {
                     listener.device_index = Some(device_index as usize);
+                    // We can't store the manager directly due to threading issues,
+                    // but we store the device index for later use
                     0
                 }
                 Err(_) => -1,
@@ -531,7 +538,7 @@ pub extern "C" fn midi_connect_event_input(
     }
 }
 
-/// Start event listening
+/// Start event listening - FIXED IMPLEMENTATION
 #[no_mangle]
 pub extern "C" fn midi_start_event_listening(handle: c_int) -> c_int {
     let mut listeners = get_event_listeners().lock().unwrap();
@@ -557,20 +564,27 @@ pub extern "C" fn midi_start_event_listening(handle: c_int) -> c_int {
             let user_event = listener.user_event.unwrap();
             let filter_array = listener.filter_array.clone();
             
+            // FIXED: Create the MIDI manager and connection in the thread
             let thread_handle = std::thread::spawn(move || {
-                let mut temp_manager = MidiManager::new();
-                if let Err(_) = temp_manager.connect_input(device_index) {
+                // Create a fresh MIDI manager for this thread
+                let mut midi_manager = MidiManager::new();
+                
+                // Connect to the MIDI device
+                if let Err(e) = midi_manager.connect_input(device_index) {
+                    eprintln!("Failed to connect to MIDI device in thread: {}", e);
                     return;
                 }
                 
+                // Main listening loop
                 while running_flag.load(std::sync::atomic::Ordering::Relaxed) {
-                    if let Some(message) = temp_manager.receive_message() {
+                    // Check for MIDI messages
+                    if let Some(message) = midi_manager.receive_message() {
                         if !message.is_empty() {
                             let status_byte = message[0];
                             
-                            // Apply filter
+                            // Apply filter if specified
                             if filter_array.is_empty() || filter_array.contains(&status_byte) {
-                                // Parse message
+                                // Parse the MIDI message
                                 let channel = status_byte & 0x0F;
                                 let msg_type = status_byte & 0xF0;
                                 let data1 = if message.len() > 1 { message[1] } else { 0 };
@@ -602,6 +616,7 @@ pub extern "C" fn midi_start_event_listening(handle: c_int) -> c_int {
                         }
                     }
                     
+                    // Small delay to prevent busy waiting
                     std::thread::sleep(std::time::Duration::from_millis(1));
                 }
             });
@@ -790,6 +805,102 @@ pub extern "C" fn lv_status_success() -> c_int {
 #[no_mangle]
 pub extern "C" fn lv_status_error() -> c_int {
     LVStatusCode::ARG_ERROR as c_int
+}
+
+#[no_mangle]
+pub extern "C" fn midi_connect_with_user_event(
+    device_index: c_int,
+    user_event_ref: u32,
+    filter_array: *const c_uchar,
+    array_size: c_int,
+) -> c_int {
+    use std::sync::Arc;
+    
+    // Create filter vector
+    let filter = if array_size > 0 && !filter_array.is_null() {
+        let filter_slice = unsafe {
+            std::slice::from_raw_parts(filter_array, array_size as usize)
+        };
+        Arc::new(filter_slice.to_vec())
+    } else {
+        Arc::new(Vec::new())
+    };
+    
+    // Create User Event
+    let user_event = Arc::new(LVUserEvent::<MidiEventData>::from_raw(user_event_ref));
+    
+    // Create MIDI manager
+    let mut manager = MidiManager::new();
+    
+    // Create the callback that will be called directly by midir
+    let callback = {
+        let filter = filter.clone();
+        let user_event = user_event.clone();
+        
+        move |message: Vec<u8>| {
+            if !message.is_empty() {
+                let status_byte = message[0];
+                
+                // Apply filter if specified
+                if filter.is_empty() || filter.contains(&status_byte) {
+                    // Parse the MIDI message
+                    let channel = status_byte & 0x0F;
+                    let msg_type = status_byte & 0xF0;
+                    let data1 = if message.len() > 1 { message[1] } else { 0 };
+                    let data2 = if message.len() > 2 { message[2] } else { 0 };
+                    
+                    let message_type = match msg_type {
+                        0x80 => 0, // Note Off
+                        0x90 => if data2 == 0 { 0 } else { 1 }, // Note On
+                        0xB0 => 2, // Control Change
+                        0xC0 => 3, // Program Change
+                        0xE0 => 4, // Pitch Bend
+                        _ => 255,  // Unknown
+                    };
+                    
+                    // Create event data
+                    let mut event_data = MidiEventData {
+                        message_type: message_type as i32,
+                        channel: channel as i32,
+                        note_or_controller: data1 as i32,
+                        velocity_or_value: data2 as i32,
+                        raw_status: status_byte as i32,
+                    };
+                    
+                    // Post the event to LabVIEW directly from midir's callback
+                    if let Err(e) = user_event.post(&mut event_data) {
+                        eprintln!("Failed to post MIDI event to LabVIEW: {}", e);
+                    }
+                }
+            }
+        }
+    };
+    
+    // Connect with the callback
+    match manager.connect_input_with_callback(device_index as usize, callback) {
+        Ok(_) => {
+            // Store the manager to keep the connection alive
+            let handle = get_next_handle();
+            let mut managers = get_midi_managers().lock().unwrap();
+            managers.insert(handle, manager);
+            handle
+        }
+        Err(_) => -1,
+    }
+}
+
+/// Disconnect and cleanup a MIDI connection
+#[no_mangle]
+pub extern "C" fn midi_disconnect(handle: c_int) -> c_int {
+    let mut managers = get_midi_managers().lock().unwrap();
+    match managers.remove(&handle) {
+        Some(_) => {
+            // The MidiManager will be dropped here, which closes the connection
+            println!("Disconnected MIDI handle {}", handle);
+            0
+        }
+        None => -1,
+    }
 }
 
 #[cfg(test)]
