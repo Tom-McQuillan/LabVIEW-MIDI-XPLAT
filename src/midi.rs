@@ -1,7 +1,5 @@
 use midir::{MidiInput, MidiOutput, MidiInputConnection, MidiOutputConnection};
-use std::sync::mpsc::{self, Receiver, Sender};
-use std::thread;
-use std::time::Duration;
+use std::sync::mpsc::{self, Receiver};
 
 pub struct MidiManager {
     input_connection: Option<MidiInputConnection<()>>,

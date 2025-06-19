@@ -1,18 +1,44 @@
+#![allow(non_snake_case)]
+
 mod midi;
 mod lv_midi;
+mod labview_interop;
+mod user_event_test;
 
-use midi::MidiManager; // Add this import
-
-// Re-export LabVIEW MIDI functions
+// Re-export LabVIEW MIDI functions publicly so the test binary can use them
 pub use lv_midi::*;
+pub use user_event_test::*;
+
+// Helper function to convert MIDI note number to note name
+pub fn get_note_name(note: u8) -> String {
+    let notes = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+    let octave = (note / 12) as i32 - 1; // MIDI note 60 = C4
+    let note_index = (note % 12) as usize;
+    format!("{}{}", notes[note_index], octave)
+}
+
+// Helper function to get control change names
+pub fn get_control_name(controller: u8) -> &'static str {
+    match controller {
+        1 => "Modulation",
+        7 => "Volume",
+        10 => "Pan",
+        11 => "Expression",
+        64 => "Sustain Pedal",
+        65 => "Portamento",
+        66 => "Sostenuto",
+        67 => "Soft Pedal",
+        _ => "Other"
+    }
+}
 
 // Keep the tests for development
 #[cfg(test)]
 mod tests {
     use crate::midi::MidiManager;
+    use crate::{get_note_name, get_control_name}; // Import the helper functions
     use std::thread;
     use std::time::Duration;
-    use super::*;
 
     #[test]
     fn test_midi_devices() {
@@ -155,37 +181,5 @@ mod tests {
         }
 
         println!("\n🎼 Listening session complete!");
-    }
-}
-
-// Helper function to convert MIDI note number to note name
-fn get_note_name(note: u8) -> String {
-    let notes = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
-    let octave = (note / 12) as i32 - 1; // MIDI note 60 = C4
-    let note_index = (note % 12) as usize;
-    format!("{}{}", notes[note_index], octave)
-}
-
-// Helper function to get control change names
-fn get_control_name(controller: u8) -> &'static str {
-    match controller {
-        1 => "Modulation",
-        7 => "Volume",
-        10 => "Pan",
-        11 => "Expression",
-        64 => "Sustain Pedal",
-        65 => "Portamento",
-        66 => "Sostenuto",
-        67 => "Soft Pedal",
-        _ => "Other"
-    }
-}
-
-// Example function that could be called from LabVIEW (we'll expand this later)
-pub fn get_midi_device_count() -> i32 {
-    let manager = MidiManager::new();
-    match manager.list_input_devices() {
-        Ok(devices) => devices.len() as i32,
-        Err(_) => -1,
     }
 }

@@ -1,16 +1,28 @@
 [package]
-name = "LabVIEW-MIDI-XPLAT"
+name = "labview_midi_xplat"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
 
 [lib]
-name = "midi_driver"
+name = "TomMIDIllan"
 crate-type = ["cdylib"]
+
+[[bin]]
+name = "midi_test"
+path = "src/bin/midi_test.rs"
 
 [dependencies]
 midir = "0.10.*"
+# Add LabVIEW interop dependencies
+dlopen2 = { version = "0.7", features = ["derive"] }
+
+[features]
+default = ["link", "sync"]
+link = []
+sync = []
 
 [profile.release]
+opt-level = 3
 lto = true
 codegen-units = 1
 panic = "abort"

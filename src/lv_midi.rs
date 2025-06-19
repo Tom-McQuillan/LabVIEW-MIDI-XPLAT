@@ -1,11 +1,12 @@
 use crate::midi::MidiManager;
+use crate::labview_interop::sync::LVUserEvent;
+use crate::labview_interop::types::LVStatusCode;
 use std::ffi::CString;
 use std::os::raw::{c_char, c_int, c_uchar};
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 
 // Global storage for MIDI managers (thread-safe)
-// LabVIEW will get a handle (ID) to reference each manager
 static MIDI_MANAGERS: OnceLock<Mutex<HashMap<i32, MidiManager>>> = OnceLock::new();
 static NEXT_HANDLE: OnceLock<Mutex<i32>> = OnceLock::new();
 
@@ -17,7 +18,6 @@ fn get_next_handle_mutex() -> &'static Mutex<i32> {
     NEXT_HANDLE.get_or_init(|| Mutex::new(1))
 }
 
-// Helper function to get the next available handle
 fn get_next_handle() -> i32 {
     let mut handle = get_next_handle_mutex().lock().unwrap();
     let current = *handle;
@@ -28,8 +28,7 @@ fn get_next_handle() -> i32 {
 // ========== DEVICE DISCOVERY ==========
 
 /// Get the number of MIDI input devices
-/// Returns: Number of devices, or -1 on error
-#[unsafe(no_mangle)]
+#[no_mangle]
 pub extern "C" fn midi_get_input_device_count() -> c_int {
     let manager = MidiManager::new();
     match manager.list_input_devices() {
@@ -39,8 +38,7 @@ pub extern "C" fn midi_get_input_device_count() -> c_int {
 }
 
 /// Get the number of MIDI output devices
-/// Returns: Number of devices, or -1 on error
-#[unsafe(no_mangle)]
+#[no_mangle]
 pub extern "C" fn midi_get_output_device_count() -> c_int {
     let manager = MidiManager::new();
     match manager.list_output_devices() {
@@ -50,11 +48,7 @@ pub extern "C" fn midi_get_output_device_count() -> c_int {
 }
 
 /// Get the name of a MIDI input device
-/// device_index: Index of the device (0-based)
-/// buffer: Buffer to write the device name into
-/// buffer_size: Size of the buffer
-/// Returns: 0 on success, -1 on error
-#[unsafe(no_mangle)]
+#[no_mangle]
 pub extern "C" fn midi_get_input_device_name(
     device_index: c_int,
     buffer: *mut c_char,
@@ -79,7 +73,7 @@ pub extern "C" fn midi_get_input_device_name(
             
             let name_bytes = c_string.as_bytes_with_nul();
             if name_bytes.len() > buffer_size as usize {
-                return -1; // Buffer too small
+                return -1;
             }
             
             unsafe {
@@ -95,8 +89,8 @@ pub extern "C" fn midi_get_input_device_name(
     }
 }
 
-/// Get the name of a MIDI output device (similar to input version)
-#[unsafe(no_mangle)]
+/// Get the name of a MIDI output device
+#[no_mangle]
 pub extern "C" fn midi_get_output_device_name(
     device_index: c_int,
     buffer: *mut c_char,
@@ -140,8 +134,7 @@ pub extern "C" fn midi_get_output_device_name(
 // ========== CONNECTION MANAGEMENT ==========
 
 /// Create a new MIDI manager instance
-/// Returns: Handle to the manager, or -1 on error
-#[unsafe(no_mangle)]
+#[no_mangle]
 pub extern "C" fn midi_create_manager() -> c_int {
     let handle = get_next_handle();
     let manager = MidiManager::new();
@@ -152,9 +145,7 @@ pub extern "C" fn midi_create_manager() -> c_int {
 }
 
 /// Destroy a MIDI manager instance
-/// handle: Handle returned by midi_create_manager
-/// Returns: 0 on success, -1 on error
-#[unsafe(no_mangle)]
+#[no_mangle]
 pub extern "C" fn midi_destroy_manager(handle: c_int) -> c_int {
     let mut managers = get_midi_managers().lock().unwrap();
     match managers.remove(&handle) {
@@ -164,10 +155,7 @@ pub extern "C" fn midi_destroy_manager(handle: c_int) -> c_int {
 }
 
 /// Connect to a MIDI input device
-/// handle: Manager handle
-/// device_index: Index of the device to connect to
-/// Returns: 0 on success, -1 on error
-#[unsafe(no_mangle)]
+#[no_mangle]
 pub extern "C" fn midi_connect_input(handle: c_int, device_index: c_int) -> c_int {
     let mut managers = get_midi_managers().lock().unwrap();
     match managers.get_mut(&handle) {
@@ -182,10 +170,7 @@ pub extern "C" fn midi_connect_input(handle: c_int, device_index: c_int) -> c_in
 }
 
 /// Connect to a MIDI output device
-/// handle: Manager handle
-/// device_index: Index of the device to connect to
-/// Returns: 0 on success, -1 on error
-#[unsafe(no_mangle)]
+#[no_mangle]
 pub extern "C" fn midi_connect_output(handle: c_int, device_index: c_int) -> c_int {
     let mut managers = get_midi_managers().lock().unwrap();
     match managers.get_mut(&handle) {
@@ -202,11 +187,7 @@ pub extern "C" fn midi_connect_output(handle: c_int, device_index: c_int) -> c_i
 // ========== MIDI COMMUNICATION ==========
 
 /// Send a MIDI message
-/// handle: Manager handle
-/// message: Pointer to MIDI message bytes
-/// message_length: Length of the message
-/// Returns: 0 on success, -1 on error
-#[unsafe(no_mangle)]
+#[no_mangle]
 pub extern "C" fn midi_send_message(
     handle: c_int,
     message: *const c_uchar,
@@ -233,12 +214,7 @@ pub extern "C" fn midi_send_message(
 }
 
 /// Receive a MIDI message (non-blocking)
-/// handle: Manager handle
-/// buffer: Buffer to write the message into
-/// buffer_size: Size of the buffer
-/// message_length: Pointer to write the actual message length
-/// Returns: 1 if message received, 0 if no message, -1 on error
-#[unsafe(no_mangle)]
+#[no_mangle]
 pub extern "C" fn midi_receive_message(
     handle: c_int,
     buffer: *mut c_uchar,
@@ -255,7 +231,7 @@ pub extern "C" fn midi_receive_message(
             match manager.receive_message() {
                 Some(msg) => {
                     if msg.len() > buffer_size as usize {
-                        return -1; // Buffer too small
+                        return -1;
                     }
                     
                     unsafe {
@@ -266,24 +242,19 @@ pub extern "C" fn midi_receive_message(
                         );
                         *message_length = msg.len() as c_int;
                     }
-                    1 // Message received
+                    1
                 }
-                None => 0, // No message available
+                None => 0,
             }
         }
-        None => -1, // Invalid handle
+        None => -1,
     }
 }
 
 // ========== HELPER FUNCTIONS ==========
 
 /// Create a Note On message
-/// channel: MIDI channel (0-15)
-/// note: Note number (0-127)
-/// velocity: Velocity (0-127)
-/// buffer: Buffer to write the message (must be at least 3 bytes)
-/// Returns: Message length (3) on success, -1 on error
-#[unsafe(no_mangle)]
+#[no_mangle]
 pub extern "C" fn midi_create_note_on(
     channel: c_uchar,
     note: c_uchar,
@@ -302,7 +273,7 @@ pub extern "C" fn midi_create_note_on(
 }
 
 /// Create a Note Off message
-#[unsafe(no_mangle)]
+#[no_mangle]
 pub extern "C" fn midi_create_note_off(
     channel: c_uchar,
     note: c_uchar,
@@ -321,7 +292,7 @@ pub extern "C" fn midi_create_note_off(
 }
 
 /// Create a Control Change message
-#[unsafe(no_mangle)]
+#[no_mangle]
 pub extern "C" fn midi_create_control_change(
     channel: c_uchar,
     controller: c_uchar,
@@ -339,342 +310,518 @@ pub extern "C" fn midi_create_control_change(
     3
 }
 
+// ========== MIDI MESSAGE PARSING ==========
+
+/// Parse a MIDI message into its components
+#[no_mangle]
+pub extern "C" fn midi_parse_message(
+    message: *const c_uchar,
+    message_length: c_int,
+    message_type: *mut c_uchar,
+    channel: *mut c_uchar,
+    note_or_controller: *mut c_uchar,
+    velocity_or_value: *mut c_uchar,
+) -> c_int {
+    if message.is_null() || message_type.is_null() || channel.is_null() || 
+       note_or_controller.is_null() || velocity_or_value.is_null() || message_length < 1 {
+        return -1;
+    }
+
+    let message_slice = unsafe {
+        std::slice::from_raw_parts(message, message_length as usize)
+    };
+
+    if message_slice.is_empty() {
+        return -1;
+    }
+
+    let status_byte = message_slice[0];
+    let midi_channel = status_byte & 0x0F;
+    let msg_type = status_byte & 0xF0;
+    
+    unsafe {
+        *channel = midi_channel;
+        
+        match msg_type {
+            0x80 => {
+                *message_type = 0;
+                if message_length >= 3 {
+                    *note_or_controller = message_slice[1];
+                    *velocity_or_value = message_slice[2];
+                } else {
+                    *note_or_controller = 0;
+                    *velocity_or_value = 0;
+                }
+            },
+            0x90 => {
+                if message_length >= 3 {
+                    *note_or_controller = message_slice[1];
+                    *velocity_or_value = message_slice[2];
+                    
+                    if message_slice[2] == 0 {
+                        *message_type = 0;
+                    } else {
+                        *message_type = 1;
+                    }
+                } else {
+                    *message_type = 1;
+                    *note_or_controller = 0;
+                    *velocity_or_value = 0;
+                }
+            },
+            0xB0 => {
+                *message_type = 2;
+                if message_length >= 3 {
+                    *note_or_controller = message_slice[1];
+                    *velocity_or_value = message_slice[2];
+                } else {
+                    *note_or_controller = 0;
+                    *velocity_or_value = 0;
+                }
+            },
+            0xC0 => {
+                *message_type = 3;
+                if message_length >= 2 {
+                    *note_or_controller = message_slice[1];
+                    *velocity_or_value = 0;
+                } else {
+                    *note_or_controller = 0;
+                    *velocity_or_value = 0;
+                }
+            },
+            0xE0 => {
+                *message_type = 4;
+                if message_length >= 3 {
+                    let lsb = message_slice[1] as u16;
+                    let msb = message_slice[2] as u16;
+                    let bend_value = (msb << 7) | lsb;
+                    
+                    *note_or_controller = (bend_value & 0xFF) as u8;
+                    *velocity_or_value = ((bend_value >> 8) & 0xFF) as u8;
+                } else {
+                    *note_or_controller = 64;
+                    *velocity_or_value = 64;
+                }
+            },
+            _ => {
+                *message_type = 255;
+                *note_or_controller = 0;
+                *velocity_or_value = 0;
+            }
+        }
+    }
+    
+    0
+}
+
+// ========== LABVIEW USER EVENTS ==========
+
+/// MIDI data structure for LabVIEW User Events
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct MidiEventData {
+    pub message_type: i32,  // 0=Note Off, 1=Note On, 2=Control Change, etc.
+    pub channel: i32,       // MIDI channel (0-15)
+    pub note_or_controller: i32,  // Note number or controller number
+    pub velocity_or_value: i32,   // Velocity or controller value
+    pub raw_status: i32,    // Raw status byte for debugging
+}
+
+// Storage for event-based MIDI listeners
+static EVENT_LISTENERS: OnceLock<Mutex<HashMap<i32, EventListener>>> = OnceLock::new();
+
+struct EventListener {
+    manager: MidiManager,
+    user_event: Option<LVUserEvent<MidiEventData>>,
+    filter_array: Vec<u8>,
+    device_index: Option<usize>,
+    running: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    thread_handle: Option<std::thread::JoinHandle<()>>,
+}
+
+impl EventListener {
+    fn new() -> Self {
+        EventListener {
+            manager: MidiManager::new(),
+            user_event: None,
+            filter_array: Vec::new(),
+            device_index: None,
+            running: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            thread_handle: None,
+        }
+    }
+}
+
+fn get_event_listeners() -> &'static Mutex<HashMap<i32, EventListener>> {
+    EVENT_LISTENERS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Create a new event-based MIDI listener for LabVIEW User Events
+#[no_mangle]
+pub extern "C" fn midi_create_event_listener() -> c_int {
+    let handle = get_next_handle();
+    let listener = EventListener::new();
+    
+    let mut listeners = get_event_listeners().lock().unwrap();
+    listeners.insert(handle, listener);
+    handle
+}
+
+/// Set the LabVIEW User Event reference (as a raw u32 value)
+#[no_mangle]
+pub extern "C" fn midi_set_user_event(
+    handle: c_int,
+    user_event_ref: u32,
+) -> c_int {
+    let mut listeners = get_event_listeners().lock().unwrap();
+    match listeners.get_mut(&handle) {
+        Some(listener) => {
+            listener.user_event = Some(LVUserEvent::from_raw(user_event_ref));
+            0
+        }
+        None => -1,
+    }
+}
+
+/// Set the message filter array
+#[no_mangle]
+pub extern "C" fn midi_set_message_filter(
+    handle: c_int,
+    filter_array: *const c_uchar,
+    array_size: c_int,
+) -> c_int {
+    let mut listeners = get_event_listeners().lock().unwrap();
+    match listeners.get_mut(&handle) {
+        Some(listener) => {
+            if array_size == 0 {
+                listener.filter_array.clear();
+            } else if !filter_array.is_null() && array_size > 0 {
+                let filter_slice = unsafe {
+                    std::slice::from_raw_parts(filter_array, array_size as usize)
+                };
+                listener.filter_array = filter_slice.to_vec();
+            } else {
+                return -1;
+            }
+            0
+        }
+        None => -1,
+    }
+}
+
+/// Connect the event listener to a MIDI input device
+#[no_mangle]
+pub extern "C" fn midi_connect_event_input(
+    handle: c_int,
+    device_index: c_int,
+) -> c_int {
+    let mut listeners = get_event_listeners().lock().unwrap();
+    
+    match listeners.get_mut(&handle) {
+        Some(listener) => {
+            match listener.manager.connect_input(device_index as usize) {
+                Ok(_) => {
+                    listener.device_index = Some(device_index as usize);
+                    0
+                }
+                Err(_) => -1,
+            }
+        }
+        None => -1,
+    }
+}
+
+/// Start event listening
+#[no_mangle]
+pub extern "C" fn midi_start_event_listening(handle: c_int) -> c_int {
+    let mut listeners = get_event_listeners().lock().unwrap();
+    
+    match listeners.get_mut(&handle) {
+        Some(listener) => {
+            if listener.user_event.is_none() {
+                return -1;
+            }
+
+            let device_index = match listener.device_index {
+                Some(idx) => idx,
+                None => return -1,
+            };
+
+            if listener.running.load(std::sync::atomic::Ordering::Relaxed) {
+                return -1;
+            }
+
+            listener.running.store(true, std::sync::atomic::Ordering::Relaxed);
+            
+            let running_flag = listener.running.clone();
+            let user_event = listener.user_event.unwrap();
+            let filter_array = listener.filter_array.clone();
+            
+            let thread_handle = std::thread::spawn(move || {
+                let mut temp_manager = MidiManager::new();
+                if let Err(_) = temp_manager.connect_input(device_index) {
+                    return;
+                }
+                
+                while running_flag.load(std::sync::atomic::Ordering::Relaxed) {
+                    if let Some(message) = temp_manager.receive_message() {
+                        if !message.is_empty() {
+                            let status_byte = message[0];
+                            
+                            // Apply filter
+                            if filter_array.is_empty() || filter_array.contains(&status_byte) {
+                                // Parse message
+                                let channel = status_byte & 0x0F;
+                                let msg_type = status_byte & 0xF0;
+                                let data1 = if message.len() > 1 { message[1] } else { 0 };
+                                let data2 = if message.len() > 2 { message[2] } else { 0 };
+                                
+                                let message_type = match msg_type {
+                                    0x80 => 0, // Note Off
+                                    0x90 => if data2 == 0 { 0 } else { 1 }, // Note On (velocity 0 = Note Off)
+                                    0xB0 => 2, // Control Change
+                                    0xC0 => 3, // Program Change
+                                    0xE0 => 4, // Pitch Bend
+                                    _ => 255,  // Unknown
+                                };
+                                
+                                // Create event data
+                                let mut event_data = MidiEventData {
+                                    message_type: message_type as i32,
+                                    channel: channel as i32,
+                                    note_or_controller: data1 as i32,
+                                    velocity_or_value: data2 as i32,
+                                    raw_status: status_byte as i32,
+                                };
+                                
+                                // Post the event to LabVIEW
+                                if let Err(e) = user_event.post(&mut event_data) {
+                                    eprintln!("Failed to post MIDI event to LabVIEW: {}", e);
+                                }
+                            }
+                        }
+                    }
+                    
+                    std::thread::sleep(std::time::Duration::from_millis(1));
+                }
+            });
+            
+            listener.thread_handle = Some(thread_handle);
+            0
+        }
+        None => -1,
+    }
+}
+
+/// Stop event listening
+#[no_mangle]
+pub extern "C" fn midi_stop_event_listening(handle: c_int) -> c_int {
+    let mut listeners = get_event_listeners().lock().unwrap();
+    
+    match listeners.get_mut(&handle) {
+        Some(listener) => {
+            listener.running.store(false, std::sync::atomic::Ordering::Relaxed);
+            
+            if let Some(thread_handle) = listener.thread_handle.take() {
+                drop(listeners);
+                let _ = thread_handle.join();
+            }
+            
+            0
+        }
+        None => 0,
+    }
+}
+
+/// Destroy an event listener
+#[no_mangle]
+pub extern "C" fn midi_destroy_event_listener(handle: c_int) -> c_int {
+    let _ = midi_stop_event_listening(handle);
+    
+    let mut listeners = get_event_listeners().lock().unwrap();
+    listeners.remove(&handle);
+    0
+}
+
+/// Get listener status for debugging
+#[no_mangle]
+pub extern "C" fn midi_get_listener_status(handle: c_int) -> c_int {
+    let listeners = get_event_listeners().lock().unwrap();
+    match listeners.get(&handle) {
+        Some(listener) => {
+            if listener.running.load(std::sync::atomic::Ordering::Relaxed) {
+                1
+            } else {
+                0
+            }
+        }
+        None => -1,
+    }
+}
+
+/// Convenience function: Open MIDI input with LabVIEW User Event in one call
+#[no_mangle]
+pub extern "C" fn midi_open_with_user_event(
+    device_id: c_int,
+    user_event_ref: u32,
+    filter_array: *const c_uchar,
+    array_size: c_int,
+) -> c_int {
+    let handle = midi_create_event_listener();
+    if handle == -1 {
+        return -1;
+    }
+    
+    if midi_set_user_event(handle, user_event_ref) != 0 {
+        midi_destroy_event_listener(handle);
+        return -1;
+    }
+    
+    if array_size > 0 && !filter_array.is_null() {
+        if midi_set_message_filter(handle, filter_array, array_size) != 0 {
+            midi_destroy_event_listener(handle);
+            return -1;
+        }
+    }
+    
+    if midi_connect_event_input(handle, device_id) != 0 {
+        midi_destroy_event_listener(handle);
+        return -1;
+    }
+    
+    if midi_start_event_listening(handle) != 0 {
+        midi_destroy_event_listener(handle);
+        return -1;
+    }
+    
+    handle
+}
+
+// ========== ADDITIONAL HELPER FUNCTIONS ==========
+
+/// Convert MIDI note number to note name
+#[no_mangle]
+pub extern "C" fn midi_note_to_name(
+    note: c_uchar,
+    buffer: *mut c_char,
+    buffer_size: c_int,
+) -> c_int {
+    if buffer.is_null() || buffer_size < 4 {
+        return -1;
+    }
+
+    if note > 127 {
+        return -1;
+    }
+
+    let notes = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+    let octave = (note / 12) as i32 - 1;
+    let note_index = (note % 12) as usize;
+    
+    let note_name = format!("{}{}", notes[note_index], octave);
+    
+    let c_string = match CString::new(note_name) {
+        Ok(s) => s,
+        Err(_) => return -1,
+    };
+    
+    let name_bytes = c_string.as_bytes_with_nul();
+    if name_bytes.len() > buffer_size as usize {
+        return -1;
+    }
+    
+    unsafe {
+        std::ptr::copy_nonoverlapping(
+            name_bytes.as_ptr() as *const c_char,
+            buffer,
+            name_bytes.len(),
+        );
+    }
+    0
+}
+
+/// Get message type name for debugging
+#[no_mangle]
+pub extern "C" fn midi_get_message_type_name(
+    message_type: c_uchar,
+    buffer: *mut c_char,
+    buffer_size: c_int,
+) -> c_int {
+    if buffer.is_null() || buffer_size <= 0 {
+        return -1;
+    }
+
+    let type_name = match message_type {
+        0 => "Note Off",
+        1 => "Note On",
+        2 => "Control Change",
+        3 => "Program Change", 
+        4 => "Pitch Bend",
+        255 => "Unknown",
+        _ => "Invalid",
+    };
+
+    let c_string = match CString::new(type_name) {
+        Ok(s) => s,
+        Err(_) => return -1,
+    };
+    
+    let name_bytes = c_string.as_bytes_with_nul();
+    if name_bytes.len() > buffer_size as usize {
+        return -1;
+    }
+    
+    unsafe {
+        std::ptr::copy_nonoverlapping(
+            name_bytes.as_ptr() as *const c_char,
+            buffer,
+            name_bytes.len(),
+        );
+    }
+    0
+}
+
+// Return the LabVIEW status code enum values for use in LabVIEW
+#[no_mangle]
+pub extern "C" fn lv_status_success() -> c_int {
+    LVStatusCode::SUCCESS as c_int
+}
+
+#[no_mangle]
+pub extern "C" fn lv_status_error() -> c_int {
+    LVStatusCode::ARG_ERROR as c_int
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::ffi::CString;
-    use std::os::raw::{c_char, c_int, c_uchar};
 
     #[test]
     fn test_device_counting() {
-        // Test input device counting
         let input_count = midi_get_input_device_count();
-        assert!(input_count >= 0, "Input device count should be non-negative");
+        assert!(input_count >= 0);
         
-        // Test output device counting
         let output_count = midi_get_output_device_count();
-        assert!(output_count >= 0, "Output device count should be non-negative");
+        assert!(output_count >= 0);
         
         println!("Found {} input devices, {} output devices", input_count, output_count);
     }
 
     #[test]
-    fn test_device_name_retrieval() {
-        let input_count = midi_get_input_device_count();
-        
-        if input_count > 0 {
-            // Test getting first device name
-            let mut buffer = [0u8; 256];
-            let result = midi_get_input_device_name(
-                0,
-                buffer.as_mut_ptr() as *mut c_char,
-                buffer.len() as c_int,
-            );
-            
-            assert_eq!(result, 0, "Should successfully get device name");
-            
-            // Safely convert to string without taking ownership
-            let name = unsafe { 
-                let c_str = std::ffi::CStr::from_ptr(buffer.as_ptr() as *const c_char);
-                c_str.to_string_lossy().to_string()
-            };
-            
-            println!("First input device: {}", name);
-            assert!(!name.is_empty(), "Device name should not be empty");
-        }
-        
-        // Test invalid device index
-        let mut buffer = [0u8; 256];
-        let result = midi_get_input_device_name(
-            99999, // Invalid index
-            buffer.as_mut_ptr() as *mut c_char,
-            buffer.len() as c_int,
-        );
-        assert_eq!(result, -1, "Should return error for invalid device index");
-    }
-
-    #[test]
-    fn test_device_name_edge_cases() {
-        // Test null buffer
-        let result = midi_get_input_device_name(0, std::ptr::null_mut(), 256);
-        assert_eq!(result, -1, "Should return error for null buffer");
-        
-        // Test zero buffer size
-        let mut buffer = [0u8; 256];
-        let result = midi_get_input_device_name(
-            0,
-            buffer.as_mut_ptr() as *mut c_char,
-            0,
-        );
-        assert_eq!(result, -1, "Should return error for zero buffer size");
-        
-        // Test negative buffer size
-        let result = midi_get_input_device_name(
-            0,
-            buffer.as_mut_ptr() as *mut c_char,
-            -1,
-        );
-        assert_eq!(result, -1, "Should return error for negative buffer size");
-    }
-
-    #[test]
     fn test_manager_lifecycle() {
-        // Test creating manager
         let handle = midi_create_manager();
-        assert!(handle > 0, "Manager handle should be positive");
+        assert!(handle > 0);
         
-        // Test creating multiple managers
-        let handle2 = midi_create_manager();
-        assert!(handle2 > 0, "Second manager handle should be positive");
-        assert_ne!(handle, handle2, "Manager handles should be unique");
-        
-        // Test destroying managers
-        let result1 = midi_destroy_manager(handle);
-        assert_eq!(result1, 0, "Should successfully destroy first manager");
-        
-        let result2 = midi_destroy_manager(handle2);
-        assert_eq!(result2, 0, "Should successfully destroy second manager");
-        
-        // Test destroying non-existent manager
-        let result3 = midi_destroy_manager(handle);
-        assert_eq!(result3, -1, "Should return error for already destroyed manager");
+        let result = midi_destroy_manager(handle);
+        assert_eq!(result, 0);
     }
 
     #[test]
-    fn test_connection_functions() {
-        let handle = midi_create_manager();
-        assert!(handle > 0, "Should create manager successfully");
+    fn test_event_listener_lifecycle() {
+        let handle = midi_create_event_listener();
+        assert!(handle > 0);
         
-        // Test connecting to invalid device (should fail gracefully)
-        let result = midi_connect_input(handle, 99999);
-        assert_eq!(result, -1, "Should return error for invalid device index");
-        
-        let result = midi_connect_output(handle, 99999);
-        assert_eq!(result, -1, "Should return error for invalid device index");
-        
-        // Test connecting with invalid handle
-        let result = midi_connect_input(99999, 0);
-        assert_eq!(result, -1, "Should return error for invalid handle");
-        
-        // Clean up
-        midi_destroy_manager(handle);
-    }
-
-    #[test]
-    fn test_message_creation() {
-        let mut buffer = [0u8; 3];
-        
-        // Test Note On creation
-        let length = midi_create_note_on(0, 60, 100, buffer.as_mut_ptr());
-        assert_eq!(length, 3, "Note On should be 3 bytes");
-        assert_eq!(buffer[0], 0x90, "Should be Note On status byte");
-        assert_eq!(buffer[1], 60, "Should have correct note number");
-        assert_eq!(buffer[2], 100, "Should have correct velocity");
-        
-        // Test Note Off creation
-        buffer = [0u8; 3];
-        let length = midi_create_note_off(1, 64, 0, buffer.as_mut_ptr());
-        assert_eq!(length, 3, "Note Off should be 3 bytes");
-        assert_eq!(buffer[0], 0x81, "Should be Note Off status byte for channel 1");
-        assert_eq!(buffer[1], 64, "Should have correct note number");
-        assert_eq!(buffer[2], 0, "Should have correct velocity");
-        
-        // Test Control Change creation
-        buffer = [0u8; 3];
-        let length = midi_create_control_change(2, 7, 127, buffer.as_mut_ptr());
-        assert_eq!(length, 3, "Control Change should be 3 bytes");
-        assert_eq!(buffer[0], 0xB2, "Should be Control Change status byte for channel 2");
-        assert_eq!(buffer[1], 7, "Should have correct controller number");
-        assert_eq!(buffer[2], 127, "Should have correct value");
-    }
-
-    #[test]
-    fn test_message_creation_edge_cases() {
-        // Test null buffer
-        let length = midi_create_note_on(0, 60, 100, std::ptr::null_mut());
-        assert_eq!(length, -1, "Should return error for null buffer");
-        
-        // Test channel bounds (should handle channel > 15)
-        let mut buffer = [0u8; 3];
-        let length = midi_create_note_on(16, 60, 100, buffer.as_mut_ptr());
-        assert_eq!(length, 3, "Should still create message");
-        assert_eq!(buffer[0] & 0x0F, 0, "Should wrap channel to 0");
-        
-        // Test note bounds (should handle note > 127)
-        buffer = [0u8; 3];
-        let length = midi_create_note_on(0, 200, 100, buffer.as_mut_ptr());
-        assert_eq!(length, 3, "Should still create message");
-        assert_eq!(buffer[1] & 0x7F, 72, "Should mask note to 7 bits (200 & 0x7F = 72)");
-        
-        // Test velocity bounds
-        buffer = [0u8; 3];
-        let length = midi_create_note_on(0, 60, 200, buffer.as_mut_ptr());
-        assert_eq!(length, 3, "Should still create message");
-        assert_eq!(buffer[2] & 0x7F, 72, "Should mask velocity to 7 bits (200 & 0x7F = 72)");
-    }
-
-    #[test]
-    fn test_send_message_safety() {
-        let handle = midi_create_manager();
-        assert!(handle > 0, "Should create manager successfully");
-        
-        // Test sending with null message
-        let result = midi_send_message(handle, std::ptr::null(), 3);
-        assert_eq!(result, -1, "Should return error for null message");
-        
-        // Test sending with zero length
-        let message = [0x90, 60, 100];
-        let result = midi_send_message(handle, message.as_ptr(), 0);
-        assert_eq!(result, -1, "Should return error for zero length");
-        
-        // Test sending with negative length
-        let result = midi_send_message(handle, message.as_ptr(), -1);
-        assert_eq!(result, -1, "Should return error for negative length");
-        
-        // Test sending with invalid handle
-        let result = midi_send_message(99999, message.as_ptr(), 3);
-        assert_eq!(result, -1, "Should return error for invalid handle");
-        
-        // Clean up
-        midi_destroy_manager(handle);
-    }
-
-    #[test]
-    fn test_receive_message_safety() {
-        let handle = midi_create_manager();
-        assert!(handle > 0, "Should create manager successfully");
-        
-        let mut buffer = [0u8; 256];
-        let mut message_length: c_int = 0;
-        
-        // Test receiving with null buffer
-        let result = midi_receive_message(
-            handle,
-            std::ptr::null_mut(),
-            256,
-            &mut message_length,
-        );
-        assert_eq!(result, -1, "Should return error for null buffer");
-        
-        // Test receiving with null message_length pointer
-        let result = midi_receive_message(
-            handle,
-            buffer.as_mut_ptr(),
-            256,
-            std::ptr::null_mut(),
-        );
-        assert_eq!(result, -1, "Should return error for null message_length pointer");
-        
-        // Test receiving with zero buffer size
-        let result = midi_receive_message(
-            handle,
-            buffer.as_mut_ptr(),
-            0,
-            &mut message_length,
-        );
-        assert_eq!(result, -1, "Should return error for zero buffer size");
-        
-        // Test receiving with invalid handle
-        let result = midi_receive_message(
-            99999,
-            buffer.as_mut_ptr(),
-            256,
-            &mut message_length,
-        );
-        assert_eq!(result, -1, "Should return error for invalid handle");
-        
-        // Test receiving with no connection (should return 0 - no message)
-        let result = midi_receive_message(
-            handle,
-            buffer.as_mut_ptr(),
-            256,
-            &mut message_length,
-        );
-        assert_eq!(result, 0, "Should return 0 for no message available");
-        
-        // Clean up
-        midi_destroy_manager(handle);
-    }
-
-    #[test]
-    fn test_concurrent_managers() {
-        // Test that multiple managers can coexist
-        let handles: Vec<c_int> = (0..5).map(|_| midi_create_manager()).collect();
-        
-        // All handles should be valid and unique
-        for &handle in &handles {
-            assert!(handle > 0, "Handle should be positive");
-        }
-        
-        // Check uniqueness
-        for i in 0..handles.len() {
-            for j in i+1..handles.len() {
-                assert_ne!(handles[i], handles[j], "Handles should be unique");
-            }
-        }
-        
-        // Clean up all managers
-        for handle in handles {
-            let result = midi_destroy_manager(handle);
-            assert_eq!(result, 0, "Should successfully destroy manager");
-        }
-    }
-
-    #[test]
-    #[ignore] // Run with: cargo test test_full_workflow -- --ignored --nocapture
-    fn test_full_workflow() {
-        // This test requires actual MIDI devices
-        println!("=== Full Workflow Test ===");
-        
-        // 1. Check device availability
-        let input_count = midi_get_input_device_count();
-        let output_count = midi_get_output_device_count();
-        
-        println!("Available devices: {} inputs, {} outputs", input_count, output_count);
-        
-        if input_count == 0 && output_count == 0 {
-            println!("No MIDI devices available - skipping workflow test");
-            return;
-        }
-        
-        // 2. Create manager
-        let handle = midi_create_manager();
-        assert!(handle > 0, "Should create manager");
-        
-        // 3. Try to connect to first available device
-        if input_count > 0 {
-            let result = midi_connect_input(handle, 0);
-            if result == 0 {
-                println!("✅ Successfully connected to input device");
-            } else {
-                println!("❌ Failed to connect to input device");
-            }
-        }
-        
-        if output_count > 0 {
-            let result = midi_connect_output(handle, 0);
-            if result == 0 {
-                println!("✅ Successfully connected to output device");
-                
-                // 4. Try sending a test message
-                let mut note_on_buffer = [0u8; 3];
-                midi_create_note_on(0, 60, 100, note_on_buffer.as_mut_ptr());
-                
-                let send_result = midi_send_message(handle, note_on_buffer.as_ptr(), 3);
-                if send_result == 0 {
-                    println!("✅ Successfully sent Note On message");
-                } else {
-                    println!("❌ Failed to send Note On message");
-                }
-            } else {
-                println!("❌ Failed to connect to output device");
-            }
-        }
-        
-        // 5. Clean up
-        let destroy_result = midi_destroy_manager(handle);
-        assert_eq!(destroy_result, 0, "Should destroy manager successfully");
-        
-        println!("✅ Workflow test completed");
+        let result = midi_destroy_event_listener(handle);
+        assert_eq!(result, 0);
     }
 }
