@@ -3,11 +3,9 @@
 mod midi;
 mod lv_midi;
 mod labview_interop;
-mod user_event_test;
 
 // Re-export LabVIEW MIDI functions publicly so the test binary can use them
 pub use lv_midi::*;
-pub use user_event_test::*;
 
 // Helper function to convert MIDI note number to note name
 pub fn get_note_name(note: u8) -> String {
