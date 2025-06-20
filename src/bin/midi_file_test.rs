@@ -2,14 +2,57 @@
 // Run with: cargo run --bin midi_file_test -- path/to/file.mid
 
 use std::env;
-use labview_midi_xplat::{
-    midi_file_open, midi_file_close, midi_file_get_info, midi_file_get_track_info,
-    midi_file_get_track_name, midi_file_get_track_instrument, midi_file_get_event_count,
-    midi_file_get_event, midi_file_get_event_text, midi_file_ticks_to_ms,
-    midi_file_get_event_type_name, MidiFileInfo, TrackInfo, MidiFileEvent,
-};
 use std::ffi::CString;
 use std::os::raw::{c_char, c_int};
+
+// Import the functions from our library
+extern "C" {
+    fn midi_file_open(file_path: *const c_char, file_handle: *mut c_int) -> c_int;
+    fn midi_file_close(file_handle: c_int) -> c_int;
+    fn midi_file_get_info(file_handle: c_int, info: *mut MidiFileInfo) -> c_int;
+    fn midi_file_get_track_info(file_handle: c_int, track_index: c_int, info: *mut TrackInfo) -> c_int;
+    fn midi_file_get_track_name(file_handle: c_int, track_index: c_int, buffer: *mut c_char, buffer_size: c_int) -> c_int;
+    fn midi_file_get_track_instrument(file_handle: c_int, track_index: c_int, buffer: *mut c_char, buffer_size: c_int) -> c_int;
+    fn midi_file_get_event_count(file_handle: c_int, track_index: c_int) -> c_int;
+    fn midi_file_get_event(file_handle: c_int, track_index: c_int, event_index: c_int, event: *mut MidiFileEvent) -> c_int;
+    fn midi_file_get_event_text(file_handle: c_int, track_index: c_int, event_index: c_int, buffer: *mut c_char, buffer_size: c_int) -> c_int;
+    fn midi_file_ticks_to_ms(file_handle: c_int, ticks: u32, tempo_us_per_quarter: u32) -> f64;
+    fn midi_file_get_event_type_name(event_type: c_int, buffer: *mut c_char, buffer_size: c_int) -> c_int;
+}
+
+// Replicate the structures from our FFI module
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct MidiFileInfo {
+    pub format: c_int,
+    pub track_count: c_int,
+    pub timing_type: c_int,
+    pub ticks_per_quarter: c_int,
+    pub fps: f32,
+    pub ticks_per_frame: c_int,
+    pub duration_ticks: u32,
+}
+
+#[repr(C)]
+#[derive(Debug, Clone)]
+pub struct TrackInfo {
+    pub track_index: c_int,
+    pub event_count: c_int,
+    pub channel_mask: c_int,
+    pub has_name: c_int,
+    pub has_instrument: c_int,
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct MidiFileEvent {
+    pub absolute_time: u32,
+    pub event_type: c_int,
+    pub channel: u8,
+    pub data1: u8,
+    pub data2: u8,
+    pub has_text: c_int,
+}
 
 fn main() {
     println!("🎵 MIDI File Test Program 🎵");

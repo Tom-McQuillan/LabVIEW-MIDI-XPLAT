@@ -12,8 +12,8 @@ name = "midi_test"
 path = "src/bin/midi_test.rs"
 
 [[bin]]
-name = "midi_file_test"
-path = "src/bin/midi_file_test.rs"
+name = "simple_midi_test"
+path = "src/bin/simple_midi_test.rs"
 
 [dependencies]
 midir = "0.10.*"

@@ -26,7 +26,7 @@
 	<Item Name="midi out.ctl" Type="Class Private Data" URL="midi out.ctl">
 		<Property Name="NI.LibItem.Scope" Type="Int">2</Property>
 	</Item>
-	<Item Name="private" Type="Folder">
+	<Item Name="dll calls" Type="Folder">
 		<Property Name="NI.LibItem.Scope" Type="Int">2</Property>
 		<Item Name="dll.midi_connect_output.vi" Type="VI" URL="../dll.midi_connect_output.vi">
 			<Property Name="NI.ClassItem.ConnectorPane" Type="Bin">)!#!!!!!!!)!"1!&amp;!!!-!%!!!@````]!!!!"!!%!!!%L!!!!#A!-1#%'=X2B&gt;(6T!!!,1!-!"'.P:'5!!""!-0````]'=W^V=G.F!!!71&amp;!!!Q!!!!%!!AFF=H*P=C"P&gt;81!"!!!!#:!=!!?!!!3%'VJ:'EA&lt;X6U,GRW9WRB=X-!!!BN;72J)'^V&gt;!!!)%"1!!-!!!!"!!)4:8*S&lt;X)A;7YA+'ZP)'6S=G^S+1!41!-!$'2F&gt;GFD:6^J&lt;G2F?!!!+%"Q!"Y!!")1&lt;7FE;3"P&gt;81O&lt;(:D&lt;'&amp;T=Q!!#WVJ:'EA&lt;X6U)'FO!'%!]!!-!!-!"!!%!!5!"!!%!!1!"!!'!!1!"Q!)!Q!!?!!!$1A!!!!!!!!!!!!!$1M!!!!!!!!!!!!!!!!!!!!!!!!+!!!!!!!!!"!!!!!1!!!.!!!!$!!!!!!!!!!!!!!"!!E!!!!!</Property>

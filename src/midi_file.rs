@@ -1,4 +1,4 @@
-use midly::{Smf, Timing, TrackEventKind, MidiMessage, MetaMessage, SysExMessage};
+use midly::{Smf, Timing, TrackEventKind, MidiMessage, MetaMessage};
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 use std::path::Path;
@@ -90,7 +90,11 @@ impl MidiFile {
         let owned_smf = smf.make_static();
         
         let timing = owned_smf.header.timing;
-        let format = owned_smf.header.format.as_int();
+        let format = match owned_smf.header.format {
+            midly::Format::SingleTrack => 0,
+            midly::Format::Parallel => 1,
+            midly::Format::Sequential => 2,
+        };
         
         // Process tracks
         let mut tracks = Vec::new();
@@ -206,13 +210,13 @@ impl MidiFile {
                         MetaMessage::Tempo(tempo) => {
                             (EventType::MetaSetTempo, format!("Tempo: {} μs/quarter", tempo.as_int()))
                         }
-                        MetaMessage::TimeSignature(ts) => {
+                        MetaMessage::TimeSignature(numerator, denominator, clocks_per_click, _) => {
                             (EventType::MetaTimeSignature, 
-                             format!("Time Sig: {}/{} ({})", ts.numerator, 1 << ts.denominator, ts.clocks_per_click))
+                             format!("Time Sig: {}/{} ({})", numerator, 1 << denominator, clocks_per_click))
                         }
-                        MetaMessage::KeySignature(ks) => {
+                        MetaMessage::KeySignature(key, is_minor) => {
                             (EventType::MetaKeySignature, 
-                             format!("Key Sig: {} {}", ks.key, if ks.scale == 0 { "major" } else { "minor" }))
+                             format!("Key Sig: {} {}", key, if *is_minor { "minor" } else { "major" }))
                         }
                         MetaMessage::EndOfTrack => {
                             (EventType::MetaEndOfTrack, "End of Track".to_string())
@@ -289,7 +293,7 @@ pub fn load_midi_file<P: AsRef<Path>>(path: P) -> Result<i32, Box<dyn std::error
 }
 
 /// Get a reference to a loaded MIDI file
-pub fn get_midi_file(handle: i32) -> Option<std::sync::MutexGuard<'static, HashMap<i32, MidiFile>>> {
+pub fn get_midi_file(_handle: i32) -> Option<std::sync::MutexGuard<'static, HashMap<i32, MidiFile>>> {
     get_midi_files().lock().ok()
 }
 
