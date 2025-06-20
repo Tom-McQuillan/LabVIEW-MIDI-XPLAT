@@ -11,10 +11,16 @@ crate-type = ["cdylib"]
 name = "midi_test"
 path = "src/bin/midi_test.rs"
 
+[[bin]]
+name = "simple_midi_test"
+path = "src/bin/simple_midi_test.rs"
+
 [dependencies]
 midir = "0.10.*"
 # Add LabVIEW interop dependencies
 dlopen2 = { version = "0.7", features = ["derive"] }
+# Add MIDI file support
+midly = "0.5"
 
 [features]
 default = ["link", "sync"]

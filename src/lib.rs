@@ -4,8 +4,15 @@ mod midi;
 mod lv_midi;
 mod labview_interop;
 
+// Add MIDI file support modules
+mod midi_file;
+mod lv_midi_file;
+
 // Re-export LabVIEW MIDI functions publicly so the test binary can use them
 pub use lv_midi::*;
+
+// Re-export MIDI file functions
+pub use lv_midi_file::*;
 
 // Helper function to convert MIDI note number to note name
 pub fn get_note_name(note: u8) -> String {
