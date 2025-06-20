@@ -28,11 +28,12 @@ pub struct TrackInfo {
     pub has_instrument: c_int,  // Boolean
 }
 
-/// MIDI event structure for LabVIEW
+/// MIDI event structure for LabVIEW with both ticks and milliseconds
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct MidiFileEvent {
-    pub absolute_time: c_uint,
+    pub absolute_time_ticks: c_uint,
+    pub absolute_time_ms: c_double,
     pub event_type: c_int,
     pub channel: c_uchar,
     pub data1: c_uchar,
@@ -298,7 +299,7 @@ pub extern "C" fn midi_file_get_event_count(
     track.events.len() as c_int
 }
 
-/// Get a specific event from a track
+/// Get a specific event from a track (with accurate millisecond timing based on tempo changes)
 #[no_mangle]
 pub extern "C" fn midi_file_get_event(
     file_handle: c_int,
@@ -330,6 +331,9 @@ pub extern "C" fn midi_file_get_event(
         None => return -4, // Event index out of range
     };
     
+    // Calculate accurate milliseconds by tracking tempo changes
+    let time_ms = calculate_accurate_milliseconds(midi_file, abs_event.absolute_time);
+    
     let event_type_code = match abs_event.event_type {
         EventType::NoteOff => 0,
         EventType::NoteOn => 1,
@@ -358,7 +362,8 @@ pub extern "C" fn midi_file_get_event(
     };
     
     let file_event = MidiFileEvent {
-        absolute_time: abs_event.absolute_time,
+        absolute_time_ticks: abs_event.absolute_time,
+        absolute_time_ms: time_ms,
         event_type: event_type_code,
         channel: abs_event.channel,
         data1: abs_event.data1,
@@ -371,6 +376,82 @@ pub extern "C" fn midi_file_get_event(
     }
     
     0
+}
+
+/// Calculate accurate milliseconds by tracking tempo changes chronologically
+fn calculate_accurate_milliseconds(midi_file: &crate::midi_file::MidiFile, target_ticks: u32) -> f64 {
+    let mut current_tempo_us = 500000u32; // Default: 120 BPM = 500,000 μs per quarter
+    let mut current_time_ms = 0.0f64;
+    let mut last_tick_time = 0u32;
+    
+    // Get timing info
+    let ticks_per_quarter = match midi_file.timing {
+        midly::Timing::Metrical(tpq) => tpq.as_int(),
+        midly::Timing::Timecode(fps, tpf) => {
+            // For timecode, convert directly without tempo tracking
+            let fps = fps.as_f32() as f64;
+            let ticks_per_frame = tpf as f64;
+            return (target_ticks as f64 / (fps * ticks_per_frame)) * 1000.0;
+        }
+    };
+    
+    // Collect all tempo events from all tracks and sort by time
+    let mut tempo_events = Vec::new();
+    
+    for track in &midi_file.tracks {
+        for abs_event in &track.events {
+            if abs_event.event_type == EventType::MetaSetTempo {
+                // Parse tempo from text (e.g., "Tempo: 500000 μs/quarter")
+                if let Some(tempo_us) = parse_tempo_from_text(&abs_event.text) {
+                    tempo_events.push((abs_event.absolute_time, tempo_us));
+                }
+            }
+        }
+    }
+    
+    // Sort tempo events by time
+    tempo_events.sort_by_key(|&(time, _)| time);
+    
+    // Calculate milliseconds by processing tempo changes chronologically
+    for &(tempo_change_time, new_tempo) in &tempo_events {
+        // If this tempo change is after our target time, we're done
+        if tempo_change_time > target_ticks {
+            break;
+        }
+        
+        // Calculate time elapsed since last tempo change using current tempo
+        let ticks_elapsed = tempo_change_time - last_tick_time;
+        let time_elapsed_ms = (ticks_elapsed as f64 / ticks_per_quarter as f64) * (current_tempo_us as f64 / 1000.0);
+        current_time_ms += time_elapsed_ms;
+        
+        // Update tempo and time tracking
+        current_tempo_us = new_tempo;
+        last_tick_time = tempo_change_time;
+    }
+    
+    // Calculate remaining time from last tempo change to target time
+    let remaining_ticks = target_ticks - last_tick_time;
+    let remaining_time_ms = (remaining_ticks as f64 / ticks_per_quarter as f64) * (current_tempo_us as f64 / 1000.0);
+    current_time_ms += remaining_time_ms;
+    
+    current_time_ms
+}
+
+/// Parse tempo value from meta event text
+fn parse_tempo_from_text(text: &str) -> Option<u32> {
+    // Text format: "Tempo: 500000 μs/quarter"
+    if let Some(start) = text.find("Tempo: ") {
+        let after_colon = &text[start + 7..]; // Skip "Tempo: "
+        if let Some(end) = after_colon.find(' ') {
+            let tempo_str = &after_colon[..end];
+            tempo_str.parse::<u32>().ok()
+        } else {
+            // Try parsing the whole remaining string
+            after_colon.parse::<u32>().ok()
+        }
+    } else {
+        None
+    }
 }
 
 /// Get the text data associated with an event (for meta events)
@@ -521,8 +602,12 @@ pub extern "C" fn midi_file_get_events_in_range(
                 EventType::Unknown => 255,
             };
             
+            // Use accurate tempo tracking for this event too
+            let time_ms = calculate_accurate_milliseconds(midi_file, abs_event.absolute_time);
+            
             events_slice[count as usize] = MidiFileEvent {
-                absolute_time: abs_event.absolute_time,
+                absolute_time_ticks: abs_event.absolute_time,
+                absolute_time_ms: time_ms,
                 event_type: event_type_code,
                 channel: abs_event.channel,
                 data1: abs_event.data1,
@@ -604,6 +689,158 @@ pub extern "C" fn midi_file_get_event_type_name(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::midi_file::{MidiFile, TrackData, AbsoluteEvent, EventType};
+    
+    #[test]
+    fn test_parse_tempo_from_text() {
+        // Test standard tempo format
+        assert_eq!(parse_tempo_from_text("Tempo: 500000 μs/quarter"), Some(500000));
+        assert_eq!(parse_tempo_from_text("Tempo: 600000 μs/quarter"), Some(600000));
+        assert_eq!(parse_tempo_from_text("Tempo: 428571 μs/quarter"), Some(428571));
+        
+        // Test without units
+        assert_eq!(parse_tempo_from_text("Tempo: 500000"), Some(500000));
+        
+        // Test invalid formats
+        assert_eq!(parse_tempo_from_text("Not a tempo"), None);
+        assert_eq!(parse_tempo_from_text("Tempo: invalid"), None);
+        assert_eq!(parse_tempo_from_text(""), None);
+    }
+    
+    #[test]
+    fn test_calculate_accurate_milliseconds_no_tempo_changes() {
+        // Create a simple MIDI file with no tempo changes (should use default 120 BPM)
+        let midi_file = create_test_midi_file(384, vec![]); // 384 ticks per quarter, no tempo events
+        
+        // Test calculations
+        assert_eq!(calculate_accurate_milliseconds(&midi_file, 0), 0.0); // Start
+        assert_eq!(calculate_accurate_milliseconds(&midi_file, 384), 500.0); // 1 quarter note at 120 BPM = 500ms
+        assert_eq!(calculate_accurate_milliseconds(&midi_file, 768), 1000.0); // 2 quarter notes = 1000ms
+        assert_eq!(calculate_accurate_milliseconds(&midi_file, 192), 250.0); // Half quarter note = 250ms
+    }
+    
+    #[test]
+    fn test_calculate_accurate_milliseconds_with_tempo_change() {
+        // Create MIDI file with tempo change: 120 BPM -> 100 BPM at tick 384
+        let tempo_events = vec![
+            (384, 600000), // Change to 100 BPM (600,000 μs per quarter) at tick 384
+        ];
+        let midi_file = create_test_midi_file(384, tempo_events);
+        
+        // Before tempo change (120 BPM = 500,000 μs per quarter)
+        assert_eq!(calculate_accurate_milliseconds(&midi_file, 0), 0.0);
+        assert_eq!(calculate_accurate_milliseconds(&midi_file, 384), 500.0); // 1 quarter at 120 BPM = 500ms
+        
+        // After tempo change (100 BPM = 600,000 μs per quarter)
+        // Time at tick 768 = 500ms (first quarter at 120 BPM) + 600ms (second quarter at 100 BPM) = 1100ms
+        assert_eq!(calculate_accurate_milliseconds(&midi_file, 768), 1100.0);
+    }
+    
+    #[test]
+    fn test_calculate_accurate_milliseconds_multiple_tempo_changes() {
+        // Create MIDI file with multiple tempo changes
+        let tempo_events = vec![
+            (192, 400000), // 150 BPM at tick 192 (half quarter note)
+            (576, 800000), // 75 BPM at tick 576 (1.5 quarter notes)
+        ];
+        let midi_file = create_test_midi_file(384, tempo_events);
+        
+        // Calculate expected times:
+        // 0-192: 0.5 quarter at 120 BPM = 0.5 * 500ms = 250ms
+        // 192-576: 1 quarter at 150 BPM = 1 * 400ms = 400ms  
+        // Total at tick 576 = 250ms + 400ms = 650ms
+        assert_eq!(calculate_accurate_milliseconds(&midi_file, 192), 250.0);
+        assert_eq!(calculate_accurate_milliseconds(&midi_file, 576), 650.0);
+        
+        // 576-768: 0.5 quarter at 75 BPM = 0.5 * 800ms = 400ms
+        // Total at tick 768 = 650ms + 400ms = 1050ms
+        assert_eq!(calculate_accurate_milliseconds(&midi_file, 768), 1050.0);
+    }
+    
+    #[test]
+    fn test_calculate_accurate_milliseconds_tempo_after_target() {
+        // Test tempo change that occurs after our target time
+        let tempo_events = vec![
+            (1000, 600000), // Tempo change after our target time
+        ];
+        let midi_file = create_test_midi_file(384, tempo_events);
+        
+        // Should use default tempo (120 BPM) since tempo change is after target
+        assert_eq!(calculate_accurate_milliseconds(&midi_file, 384), 500.0);
+        assert_eq!(calculate_accurate_milliseconds(&midi_file, 768), 1000.0);
+    }
+    
+    #[test]
+    fn test_calculate_accurate_milliseconds_timecode() {
+        // Test timecode timing (should bypass tempo tracking)
+        let midi_file = create_test_midi_file_timecode(25.0, 40); // 25 FPS, 40 ticks per frame
+        
+        // Should calculate: ticks / (fps * ticks_per_frame) * 1000
+        // 1000 ticks / (25 * 40) * 1000 = 1000 / 1000 * 1000 = 1000ms
+        assert_eq!(calculate_accurate_milliseconds(&midi_file, 1000), 1000.0);
+    }
+    
+    // Helper function to create test MIDI file
+    fn create_test_midi_file(ticks_per_quarter: u16, tempo_events: Vec<(u32, u32)>) -> MidiFile {
+        let mut events = Vec::new();
+        
+        // Add tempo events
+        for (time, tempo_us) in tempo_events {
+            events.push(AbsoluteEvent {
+                absolute_time: time,
+                event_type: EventType::MetaSetTempo,
+                channel: 0,
+                data1: 0,
+                data2: 0,
+                text: format!("Tempo: {} μs/quarter", tempo_us),
+            });
+        }
+        
+        let track = TrackData {
+            events,
+            name: "Test Track".to_string(),
+            instrument: None,
+            channel_mask: 0,
+        };
+        
+        // Create a dummy SMF - we'll use unsafe zeroed since we don't actually use it in tests
+        let dummy_smf: midly::Smf<'static> = unsafe { std::mem::zeroed() };
+        
+        MidiFile {
+            smf: dummy_smf,
+            tracks: vec![track],
+            timing: midly::Timing::Metrical(midly::num::u15::new(ticks_per_quarter).unwrap()),
+            format: 1,
+        }
+    }
+    
+    // Helper function to create timecode MIDI file
+    fn create_test_midi_file_timecode(fps: f32, ticks_per_frame: u8) -> MidiFile {
+        let track = TrackData {
+            events: vec![],
+            name: "Test Track".to_string(),
+            instrument: None,
+            channel_mask: 0,
+        };
+        
+        let fps_enum = match fps as u8 {
+            24 => midly::Fps::Fps24,
+            25 => midly::Fps::Fps25,
+            29 => midly::Fps::Fps29,
+            30 => midly::Fps::Fps30,
+            _ => midly::Fps::Fps25, // Default
+        };
+        
+        // Create a dummy SMF
+        let dummy_smf: midly::Smf<'static> = unsafe { std::mem::zeroed() };
+        
+        MidiFile {
+            smf: dummy_smf,
+            tracks: vec![track],
+            timing: midly::Timing::Timecode(fps_enum, ticks_per_frame),
+            format: 1,
+        }
+    }
     
     #[test]
     fn test_event_type_codes() {
