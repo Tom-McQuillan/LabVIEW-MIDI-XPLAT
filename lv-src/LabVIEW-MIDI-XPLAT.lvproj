@@ -17,10 +17,7 @@
 			<Item Name="note on.vi" Type="VI" URL="../examples/note on.vi"/>
 			<Item Name="file read.vi" Type="VI" URL="../midi file/file read.vi"/>
 		</Item>
-		<Item Name="midi shared.lvlib" Type="Library" URL="../shared/midi shared.lvlib"/>
-		<Item Name="midi in.lvclass" Type="LVClass" URL="../midi in/midi in.lvclass"/>
-		<Item Name="midi out.lvclass" Type="LVClass" URL="../midi out/midi out.lvclass"/>
-		<Item Name="midi file.lvclass" Type="LVClass" URL="../midi file/midi file.lvclass"/>
+		<Item Name="MIDIllan.lvlib" Type="Library" URL="../MIDIllan/MIDIllan.lvlib"/>
 		<Item Name="Dependencies" Type="Dependencies">
 			<Item Name="vi.lib" Type="Folder">
 				<Item Name="BuildHelpPath.vi" Type="VI" URL="/&lt;vilib&gt;/Utility/error.llb/BuildHelpPath.vi"/>

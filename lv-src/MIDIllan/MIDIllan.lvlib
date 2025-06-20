@@ -4,9 +4,18 @@
 	<Property Name="NI.Lib.SourceVersion" Type="Int">536903680</Property>
 	<Property Name="NI.Lib.Version" Type="Str">1.0.0.0</Property>
 	<Property Name="NI.LV.All.SourceOnly" Type="Bool">true</Property>
-	<Item Name="dll_path.vi" Type="VI" URL="../dll_path.vi"/>
-	<Item Name="midi note name.ctl" Type="VI" URL="../midi note name.ctl"/>
-	<Item Name="midi status byte.ctl" Type="VI" URL="../midi status byte.ctl"/>
-	<Item Name="midi_value.from_enum.vi" Type="VI" URL="../midi_value.from_enum.vi"/>
+	<Item Name="definitions" Type="Folder">
+		<Property Name="NI.LibItem.Scope" Type="Int">1</Property>
+		<Item Name="midi note name.ctl" Type="VI" URL="../midi note name.ctl"/>
+		<Item Name="midi status byte.ctl" Type="VI" URL="../midi status byte.ctl"/>
+	</Item>
+	<Item Name="private" Type="Folder">
+		<Property Name="NI.LibItem.Scope" Type="Int">2</Property>
+		<Item Name="dll_path.vi" Type="VI" URL="../dll_path.vi"/>
+		<Item Name="midi_value.from_enum.vi" Type="VI" URL="../midi_value.from_enum.vi"/>
+	</Item>
+	<Item Name="midi file.lvclass" Type="LVClass" URL="../../midi file/midi file.lvclass"/>
+	<Item Name="midi in.lvclass" Type="LVClass" URL="../../midi in/midi in.lvclass"/>
+	<Item Name="midi out.lvclass" Type="LVClass" URL="../../midi out/midi out.lvclass"/>
 	<Item Name="midi_value.to_enum.vi" Type="VI" URL="../midi_value.to_enum.vi"/>
 </Library>
