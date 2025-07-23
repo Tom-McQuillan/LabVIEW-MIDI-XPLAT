@@ -23,9 +23,9 @@ A high-performance, cross-platform MIDI driver library written in Rust, designed
 
 | Platform | 32-bit | 64-bit |
 |----------|--------|--------|
-| Windows  | `midi_driver_win32.dll` | `midi_driver_win64.dll` |
-| macOS    | `libmidi_driver_mac32.dylib` | `libmidi_driver_mac64.dylib` |
-| Linux    | `libmidi_driver_linux32.so` | `libmidi_driver_linux64.so` |
+| Windows  | `TomMIDIllan_32.dll` | `TomMIDIllan_32.dll` |
+| macOS    | `n/a` | `TomMIDIllan.dylib` |
+| Linux    | `n/a` | `TomMIDIllan.so` |
 
 ## Usage
 
