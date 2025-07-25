@@ -1,0 +1,45 @@
+name: Cargo Build
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_TARGET_DIR: ${{ github.workspace }}/build
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-latest, macos-latest]
+        bitness: [ 32, 64 ]
+        include:
+        - os: windows-latest
+          bitness: 32
+          toolchain: i686-pc-windows-msvc
+        exclude:
+        - os: ubuntu-22.04
+          bitness: 32
+        - os: macos-latest
+          bitness: 32
+
+    steps:
+    
+    - uses: actions/checkout@v4
+    - name: Build
+      run: cargo build --release ${{ matrix.toolchain !='' && '--target=' || ''}}${{ matrix.toolchain }} --lib --verbose
+      
+    - name: Store Build Output
+      uses: actions/upload-artifact@v4
+      with:
+        name: LabVIEW-MIDI-XPLAT_${{ matrix.os }}-${{ matrix.bitness }}
+        path: |
+         ${{ github.workspace }}/build/*.so
+         ${{ github.workspace }}/build/*.dll
+         ${{ github.workspace }}/build/*.dynlib
+         
