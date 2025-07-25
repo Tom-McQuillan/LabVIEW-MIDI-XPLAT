@@ -49,11 +49,17 @@ jobs:
     
     - name: Build
       run: cargo build --release ${{ matrix.toolchain !='' && '--target=' || ''}}${{ matrix.toolchain }} --lib --verbose
+
+    - name: Rename Binaries
+      if: ${{ matrix.os != 'windows-latest' }}
+      run: |
+        cd ${{ github.workspace }}/build/release
+        for file in libTomMIDIllan*; do mv "$file" "${file#lib}"; done
       
     - name: Store Build Output
       uses: actions/upload-artifact@v4
       with:
         name: LabVIEW-MIDI-XPLAT_${{ matrix.os }}-${{ matrix.bitness }}
         path: |
-         ${{ github.workspace }}/build/
+         ${{ github.workspace }}/build/release
          
