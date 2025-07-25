@@ -41,5 +41,5 @@ jobs:
         path: |
          ${{ github.workspace }}/build/*.so
          ${{ github.workspace }}/build/*.dll
-         ${{ github.workspace }}/build/*.dynlib
+         ${{ github.workspace }}/build/*.dylib
          
