@@ -49,7 +49,5 @@ jobs:
       with:
         name: LabVIEW-MIDI-XPLAT_${{ matrix.os }}-${{ matrix.bitness }}
         path: |
-         ${{ github.workspace }}/build/*.so
-         ${{ github.workspace }}/build/*.dll
-         ${{ github.workspace }}/build/*.dylib
+         ${{ github.workspace }}/build/
          
