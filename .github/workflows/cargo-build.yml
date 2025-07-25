@@ -41,6 +41,12 @@ jobs:
           target
         key: ${{ matrix.os }}-${{ matrix.bitness }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
+    - name: Install OS dependencies
+      if: ${{ matrix.os == 'ubuntu-22.04' }}
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y  libasound2  libasound2-dev
+    
     - name: Build
       run: cargo build --release ${{ matrix.toolchain !='' && '--target=' || ''}}${{ matrix.toolchain }} --lib --verbose
       
