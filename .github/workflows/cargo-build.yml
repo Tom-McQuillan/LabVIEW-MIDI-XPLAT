@@ -1,0 +1,80 @@
+name: Cargo Build
+
+on:
+  push:
+    branches: [ "main", "develop" ]
+  pull_request:
+    branches: [ "main" ]
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_TARGET_DIR: ${{ github.workspace }}/build
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-latest, macos-latest]
+        bitness: [ 32, 64 ]
+        include:
+        - os: windows-latest
+          bitness: 32
+          target: i686-pc-windows-msvc
+        - os: windows-latest
+          bitness: 64
+          target: x86_64-pc-windows-msvc
+        exclude:
+        - os: ubuntu-22.04
+          bitness: 32
+        - os: macos-latest
+          bitness: 32
+
+    steps:
+    
+    - uses: actions/checkout@v4
+
+    - name: Cache
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ${{ matrix.os }}-${{ matrix.bitness }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+    - name: Install OS dependencies
+      if: ${{ matrix.os == 'ubuntu-22.04' }}
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y  libasound2  libasound2-dev
+    
+    - name: Build
+      run: cargo build --release ${{ matrix.target !='' && '--target=' || ''}}${{ matrix.target }} --lib --verbose
+
+    - name: Rename Binaries Windows
+      if: ${{ matrix.os == 'windows-latest' }}
+      run: |
+        cd ${{ github.workspace }}/build/${{ matrix.target }}/release
+        mv TomMIDIllan.dll ../../release/TomMIDIllan_${{ matrix.bitness }}.dll
+        
+    - name: Rename Binaries Linux
+      if: ${{ matrix.os == 'ubuntu-22.04' }}
+      run: |
+        cd ${{ github.workspace }}/build/release
+        mv libTomMIDIllan.so TomMIDIllan_${{ matrix.bitness }}.so 
+
+    - name: Rename Binaries MacOS
+      if: ${{ matrix.os == 'macos-latest' }}
+      run: |
+        cd ${{ github.workspace }}/build/release
+        mv libTomMIDIllan.dylib TomMIDIllan_${{ matrix.bitness }}.dylib
+      
+    - name: Store Build Output
+      uses: actions/upload-artifact@v4
+      with:
+        name: LabVIEW-MIDI-XPLAT_${{ matrix.os }}-${{ matrix.bitness }}
+        path: |
+         ${{ github.workspace }}/build/**/release
+         

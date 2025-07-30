@@ -4,7 +4,7 @@
 use std::env;
 
 // Import the Rust functions directly from our library
-use labview_midi_xplat::{
+use crate::{
     midi_file::{load_midi_file, get_midi_file, close_midi_file, EventType},
     get_note_name,
 };
